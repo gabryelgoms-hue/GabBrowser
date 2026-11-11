@@ -1,0 +1,52 @@
+name: Gerar APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+        with:
+          gradle-version: '8.9'
+      - run: unzip -q *.zip
+      - name: Testes de segurança e de regras
+        run: gradle :core:common:test --stacktrace
+        working-directory: GabBrowser
+      - name: APK de depuração
+        run: gradle :app:assembleDebug --stacktrace
+        working-directory: GabBrowser
+      - name: Preparar chave de assinatura
+        env:
+          KEY_B64: ${{ secrets.SIGNING_KEY_BASE64 }}
+        run: |
+          if [ -n "$KEY_B64" ]; then
+            echo "$KEY_B64" | base64 -d > "$RUNNER_TEMP/gabbrowser-release.p12"
+            echo "GAB_KEYSTORE_FILE=$RUNNER_TEMP/gabbrowser-release.p12" >> "$GITHUB_ENV"
+          fi
+      - name: APK de release assinado
+        if: env.GAB_KEYSTORE_FILE != ''
+        env:
+          GAB_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --stacktrace
+        working-directory: GabBrowser
+      - name: Apagar a chave do servidor
+        if: always()
+        run: rm -f "$RUNNER_TEMP/gabbrowser-release.p12"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: GabBrowser-debug-apk
+          path: GabBrowser/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: env.GAB_KEYSTORE_FILE != ''
+        with:
+          name: GabBrowser-release-apk
+          path: GabBrowser/app/build/outputs/apk/release/*.apk
